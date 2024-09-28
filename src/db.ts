@@ -80,6 +80,10 @@ export function addAccount(icon: string, name: string) {
     .run(icon, name);
 }
 
+export function removeAccount(id: number) {
+  return db.prepare("DELETE FROM accounts WHERE id = ?").run(id);
+}
+
 export function addCategory(icon: string, name: string) {
   return db
     .prepare("INSERT INTO categories (icon, name) VALUES (?, ?)")
@@ -129,4 +133,57 @@ export function addBudget(value: number, category_id: number) {
 
 export function getBudgets() {
   return db.prepare<Budget, []>("SELECT * FROM budgets").all();
+}
+
+/**
+ * Calculates the budget consumption for each category
+ * for the current month
+ */
+export function calculateBudgetConsumption(date = Date.now()): Map<
+  number,
+  {
+    budget: number;
+    consumption: number;
+  }
+> {
+  const startOfMonth = new Date(date);
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  const endOfPeriod = new Date(startOfMonth);
+  endOfPeriod.setMonth(endOfPeriod.getMonth() + 1);
+
+  const expenses = getExpenses(+startOfMonth, +endOfPeriod);
+  const categories = getCategories();
+  const budgets = getBudgets();
+
+  const budgetConsumption = new Map<
+    number,
+    {
+      budget: number;
+      consumption: number;
+    }
+  >();
+
+  for (const category of categories) {
+    const categoryExpenses = expenses.filter(
+      (e) => e.category_id === category.id
+    );
+    const totalForCategory = categoryExpenses.reduce(
+      (acc, cur) => acc + cur.amount,
+      0
+    );
+
+    const budget = budgets.find((b) => b.category_id === category.id)!;
+    if (!budget) continue;
+
+    budgetConsumption.set(category.id, {
+      budget: budget.value,
+      consumption: totalForCategory,
+    });
+  }
+
+  console.log(budgetConsumption);
+
+  return budgetConsumption;
 }
