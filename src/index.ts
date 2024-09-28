@@ -47,7 +47,9 @@ class Subject<T> {
 let listener = null as null | ((ctx: Ctx, message: string) => void);
 
 bot.command("help", (ctx) => {
-  ctx.reply("Available commands:\n\n" + allCommands.map((c) => c.command).join("\n"));
+  ctx.reply(
+    "Available commands:\n\n" + allCommands.map((c) => c.command).join("\n")
+  );
 });
 
 bot.hears(/^.+$/, (ctx, next) => {
@@ -118,6 +120,7 @@ function afterCommand(
         );
 
         listener = async (ctx: Ctx, message: string) => {
+          Markup.removeKeyboard();
           if (!acc.ctx) acc.ctx = ctx;
 
           listener = null;
@@ -152,6 +155,7 @@ function afterCommand(
         );
 
         listener = async (ctx: Ctx, message: string) => {
+          Markup.removeKeyboard();
           if (!acc.ctx) acc.ctx = ctx;
 
           const selectedChoice = choices.find(
@@ -314,6 +318,9 @@ onCommand("/add_expense", "Spend money")
     acc.title = message;
   })
   .tap((acc, ctx) => {
+    const budgets = db.getBudgets();
+    const budget = budgets.find((b) => b.category_id === +acc.category_id);
+
     db.addExpense(
       +acc.account_id,
       +acc.category_id,
@@ -323,6 +330,33 @@ onCommand("/add_expense", "Spend money")
     );
 
     ctx.reply("Expense added.");
+
+    if (budget) {
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      const expenses = db.getExpenses(+startOfMonth);
+
+      const categories = db.getCategories();
+      const category = categories.find((c) => c.id === +acc.category_id)!;
+
+      const totalForCategory = expenses.reduce(
+        (acc, cur) =>
+          cur.category_id === category.id ? acc + cur.amount : acc,
+        0
+      );
+
+      const percentage = totalForCategory / budget.value;
+
+      ctx.reply(
+        `You've spent ${totalForCategory}€ in ${
+          category.name
+        } for this month, which is ${(percentage * 100).toFixed(
+          2
+        )}% of your monthly budget.`
+      );
+    }
   });
 
 onCommand("/set_budget", "Set a monthly budget on a category")
@@ -363,16 +397,45 @@ onCommand("/set_budget", "Set a monthly budget on a category")
 
 onCommand("/get_budgets", "Lists the budgets for each category").tap(
   (acc, ctx) => {
+    const budgets = db.getBudgets();
     const categories = db.getCategories();
 
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const expenses = db.getExpenses(+startOfMonth);
+    const expenseByCategory = new Map<number, number>();
+
+    for (const category of categories) {
+      const categoryExpenses = expenses.filter(
+        (e) => e.category_id === category.id
+      );
+      const totalForCategory = categoryExpenses.reduce(
+        (acc, cur) => acc + cur.amount,
+        0
+      );
+      expenseByCategory.set(category.id, totalForCategory);
+    }
+
     ctx.reply(
-      db
-        .getBudgets()
-        .map((a) => {
-          const category = categories.find((c) => c.id === a.category_id)!;
-          return a.value + "€ - " + category.icon + " " + category.name;
+      budgets
+        .map((b) => {
+          const category = categories.find((c) => c.id === b.category_id)!;
+          const totalForCategory = expenseByCategory.get(b.category_id)!;
+          const percentage = totalForCategory / b.value;
+
+          return (
+            b.value +
+            "€ - " +
+            category.icon +
+            " " +
+            category.name +
+            "\n" +
+            `    ${percentage * 100}% used for this month`
+          );
         })
-        .join("\n") || "No budgets yet...\nUse /set_budget to add one."
+        .join("\n\n") || "No budgets yet...\nUse /set_budget to add one."
     );
   }
 );
@@ -503,7 +566,8 @@ onCommand("/change_expense_date", "Change the date of an expense")
       acc.day = message;
     },
     3
-  ).tap((acc, ctx) => {
+  )
+  .tap((acc, ctx) => {
     const expenseId = +acc.expense_id;
     const year = +acc.year;
     const month = +acc.month;

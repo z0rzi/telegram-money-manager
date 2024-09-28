@@ -3,7 +3,7 @@ version: "3.0"
 services:
   telegram:
     build: .
-    container_name: telegram
+    container_name: telegram-money-manager
     restart: no
     network_mode: host
     volumes:
