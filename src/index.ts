@@ -53,7 +53,8 @@ onCommand("/remove_account", "Removes an account", false)
     },
     (acc, ctx, message) => {
       acc.account_id = message;
-    }
+    },
+    2
   )
   .confirm(
     "Are you sure? All the expenses related to this account will be removed forever.",
@@ -490,7 +491,8 @@ onCommand(/^[0-9\.]+$/, "Add an expense")
     },
     (acc, ctx, message) => {
       acc.account_id = message;
-    }
+    },
+    2
   )
   .choice(
     "Which category?",
@@ -506,7 +508,8 @@ onCommand(/^[0-9\.]+$/, "Add an expense")
     },
     (acc, ctx, message) => {
       acc.category_id = message;
-    }
+    },
+    2
   )
   .text("Title?", (acc, ctx, message) => {
     acc.title = message;
@@ -544,38 +547,3 @@ onCommand(/^[0-9\.]+$/, "Add an expense")
       );
     }
   });
-
-onCommand("/test", "Test", true).choice(
-  "Which category?",
-  () => {
-    const categories = db.getCategories();
-
-    const choices = categories.map((c) => ({
-      label: `${c.icon} ${c.name}`,
-      payload: c.id.toString(),
-    }));
-
-    return choices.slice(0, 2);
-  },
-  (acc, ctx, message) => {
-    acc.category_id = message;
-  }
-).tap((acc, ctx) => {
-  const spendings = db.calculateBudgetConsumption();
-
-  if (spendings.has(+acc.category_id)) {
-    const category = db.getCategories().find((c) => c.id === +acc.category_id)!;
-    const totalForCategory = spendings.get(+acc.category_id)!.consumption;
-    const budget = spendings.get(+acc.category_id)!.budget;
-
-    const percentage = totalForCategory / budget;
-
-    ctx.reply(
-      `You've spent ${totalForCategory}€ in ${category.name} for this month, which is ${(
-        percentage * 100
-      ).toFixed(2)}% of your monthly budget.`
-    );
-  } else {
-    ctx.reply("No budget set for this category.");
-  }
-});
