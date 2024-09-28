@@ -183,7 +183,5 @@ export function calculateBudgetConsumption(date = Date.now()): Map<
     });
   }
 
-  console.log(budgetConsumption);
-
   return budgetConsumption;
 }

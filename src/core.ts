@@ -132,7 +132,7 @@ function handleChain<T>(
   prompt: string,
   callback: ThenCb<T>,
   keyboardGetter?: () => null | Markup.Markup<ReplyKeyboardMarkup>,
-  answerParser?: (acc: Accumulator, ctx: Ctx, message: string) => T,
+  answerParser?: (acc: Accumulator, ctx: Ctx, message: string) => null | T,
   skipElementTester?: (acc: Accumulator, ctx: Ctx, message: string) => null | T
 ) {
   /**
@@ -161,11 +161,18 @@ function handleChain<T>(
       listener = null;
 
       if (callback) {
-        const res = callback(
-          acc,
-          ctx,
-          answerParser ? answerParser(acc, ctx, message) : (message as T)
-        );
+        let actualMessage = message as T;
+        if (answerParser) {
+          const parsedMessage = answerParser(acc, ctx, message);
+          if (!parsedMessage) {
+            ctx.reply("Invalid answer.");
+            return;
+          }
+          actualMessage = parsedMessage as T;
+        }
+
+        const res = callback(acc, ctx, actualMessage);
+
         if (res === false) return;
       }
 
@@ -224,6 +231,8 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
           const selectedChoice = choices.find(
             (choice) => choice.label === message
           );
+          if (!selectedChoice) return null;
+
           return selectedChoice!.payload;
         },
         (acc, ctx) => {

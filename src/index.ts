@@ -489,7 +489,6 @@ onCommand(/^[0-9\.]+$/, "Add an expense")
       return choices;
     },
     (acc, ctx, message) => {
-      console.log(acc.command);
       acc.account_id = message;
     }
   )
@@ -526,7 +525,6 @@ onCommand(/^[0-9\.]+$/, "Add an expense")
     const consumption = db.calculateBudgetConsumption();
 
     const catId = +acc.category_id;
-    console.log("catId", catId);
 
     if (consumption.has(catId)) {
       const categories = db.getCategories();
@@ -564,8 +562,6 @@ onCommand("/test", "Test", true).choice(
   }
 ).tap((acc, ctx) => {
   const spendings = db.calculateBudgetConsumption();
-
-  console.log(acc.category_id);
 
   if (spendings.has(+acc.category_id)) {
     const category = db.getCategories().find((c) => c.id === +acc.category_id)!;
