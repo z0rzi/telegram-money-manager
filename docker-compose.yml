@@ -1,0 +1,10 @@
+version: "3.0"
+
+services:
+  telegram:
+    build: .
+    container_name: telegram
+    restart: no
+    network_mode: host
+    volumes:
+      - ./db.sqlite:/app/db.sqlite
