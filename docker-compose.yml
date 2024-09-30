@@ -4,7 +4,7 @@ services:
   telegram:
     build: .
     container_name: telegram-money-manager
-    restart: no
+    restart: always
     network_mode: host
     volumes:
       - ./db.sqlite:/app/db.sqlite

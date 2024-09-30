@@ -12,3 +12,14 @@ export function formatExpense(expense: Expense, catogories: Category[]) {
 
   return `${strDate} ${category.icon} ${expense.description} ${expense.amount}€`;
 }
+
+export function formatNum(num: number, isCurrency = false) {
+  if (isCurrency) {
+    return num.toLocaleString("en-US", {
+      style: "currency",
+      currency: "EUR",
+    });
+  } else {
+    return num.toFixed(2).replace(/.?0*$/, "");
+  }
+}

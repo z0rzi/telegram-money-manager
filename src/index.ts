@@ -3,7 +3,7 @@ dotenv.config();
 
 import * as db from "./db";
 import { onCommand } from "./core";
-import { escapeMd } from "./utils";
+import { escapeMd, formatNum } from "./utils";
 import { formatExpense } from "./utils";
 
 const MONTHS_TO_SHOW = 3;
@@ -186,10 +186,10 @@ onCommand("/add_expense", "Spend money", true)
       const percentage = totalForCategory / budget.value;
 
       ctx.reply(
-        `You've spent ${totalForCategory}€ in ${
+        `You've spent ${formatNum(totalForCategory, true)} in ${
           category.name
-        } for this month, which is ${(percentage * 100).toFixed(
-          2
+        } for this month, which is ${formatNum(
+          percentage * 100
         )}% of your monthly budget.`
       );
     }
@@ -243,10 +243,15 @@ onCommand("/get_budgets", "Lists the budgets for each category", true).tap(
       const totalForCategory = consumption.consumption;
       const percentage = totalForCategory / consumption.budget;
 
-      answer += `${consumption.budget}€ - ${category.icon} ${category.name}\n`;
-      answer += `    ${percentage * 100}% used for this month (${
-        consumption.consumption
-      }€)\n\n`;
+      answer += `${formatNum(consumption.budget, true)} - ${category.icon} ${
+        category.name
+      }\n`;
+      answer += `    ${formatNum(
+        percentage * 100
+      )}% used for this month (${formatNum(
+        consumption.consumption,
+        true
+      )})\n\n`;
     }
 
     ctx.reply(answer);
@@ -461,7 +466,10 @@ onCommand("/get_expenses_by_category", "Get expenses by category", true).tap(
         );
 
         if (totalForCategory > 0) {
-          answer += `${category.icon} ${category.name} : ${totalForCategory}€\n`;
+          answer += `${category.icon} ${category.name} : ${formatNum(
+            totalForCategory,
+            true
+          )}\n`;
         }
       }
       answer += "\n";
@@ -539,10 +547,10 @@ onCommand(/^[0-9\.]+$/, "Add an expense")
       const percentage = totalForCategory / budget;
 
       ctx.reply(
-        `You've spent ${totalForCategory}€ in ${
+        `You've spent ${formatNum(totalForCategory, true)} in ${
           category.name
-        } for this month, which is ${(percentage * 100).toFixed(
-          2
+        } for this month, which is ${formatNum(
+          percentage * 100
         )}% of your monthly budget.`
       );
     }
