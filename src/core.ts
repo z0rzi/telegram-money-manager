@@ -1,9 +1,14 @@
 import { Context, Markup, Telegraf } from "telegraf";
 import { ReplyKeyboardMarkup } from "typegram";
+import DB from "./db";
 
-type Ctx = Context;
-type Accumulator = Record<string, string> & { ctx: Ctx; command: string };
-type ThenCb<Mtype = string> = (
+export type Ctx = Context;
+export type Accumulator = Record<string, string> & {
+  ctx: Ctx;
+  command: string;
+  db: DB;
+};
+export type ThenCb<Mtype = string> = (
   acc: Accumulator,
   ctx: Ctx,
   message: Mtype
@@ -30,12 +35,17 @@ const token = process.env.BOT_TOKEN || "";
 
 const bot = new Telegraf(token);
 
-bot.use(Telegraf.log());
+// bot.use(Telegraf.log());
 
 bot.command("help", (ctx) => {
   ctx.reply(
     "Available commands:\n\n" +
       commandDefinitions.map((c) => c.command).join("\n")
+  );
+});
+bot.command("start", (ctx) => {
+  ctx.reply(
+    "To get started, use the following commands:\n\n- /set_identity\n- /add_account\n- /add_category\n- /add_budget (optional)\n\nOnce you're done with that, you can add an expense by simply typing the amount."
   );
 });
 
@@ -102,6 +112,10 @@ class Subject<T> {
   next(value: T) {
     this._value = value;
     this._subscribers.forEach((s) => s(value));
+  }
+
+  destroy() {
+    this._subscribers = [];
   }
 }
 
@@ -173,7 +187,10 @@ function handleChain<T>(
 
         const res = callback(acc, ctx, actualMessage);
 
-        if (res === false) return;
+        if (res === false) {
+          newSubject.destroy();
+          return;
+        }
       }
 
       if (!newSubject.subscribersCount) {
@@ -205,7 +222,7 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
 
     choice: (
       prompt: string,
-      choicesGetter: () => { label: string; payload: string }[],
+      choicesGetter: (acc: Accumulator) => { label: string; payload: string }[],
       callback: ThenCb<string>,
       colsAmount = 1
     ) => {
@@ -216,7 +233,7 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
         prompt,
         callback,
         () => {
-          choices = choicesGetter();
+          choices = choicesGetter(acc);
 
           if (choices.length <= 1) return null;
 
@@ -250,7 +267,40 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
       const newSubject = new Subject<void>();
       _before.subscribe(() => {
         const res = callback(acc, acc.ctx!);
-        if (res === false) return;
+        if (res === false) {
+          newSubject.destroy();
+          return;
+        }
+        if (!newSubject.subscribersCount) {
+          // This is the last element in the chain, we restore the keyboard to the default one
+          acc.ctx.sendMessage("All done", getMainOptionsKeyboard());
+        } else {
+          newSubject.next();
+        }
+      });
+
+      return afterCommand(acc, newSubject);
+    },
+
+    /**
+     * Stops the chain if an error is thrown.
+     */
+    checkError: (callback: ThenCb<void>) => {
+      const newSubject = new Subject<void>();
+      _before.subscribe(() => {
+        let res: boolean | void;
+
+        try {
+          res = callback(acc, acc.ctx!);
+        } catch (e) {
+          acc.ctx.reply(e.message);
+          return;
+        }
+
+        if (res === false) {
+          newSubject.destroy();
+          return;
+        }
         if (!newSubject.subscribersCount) {
           // This is the last element in the chain, we restore the keyboard to the default one
           acc.ctx.sendMessage("All done", getMainOptionsKeyboard());
@@ -274,8 +324,22 @@ export function onCommand(
   const subject = new Subject<void>();
 
   const cb = (ctx: Ctx) => {
+    // Getting the chat id
+    const chatId = ctx?.chat?.id;
+    if (!chatId) return;
+
+    const db = DB.getDbForConversation(chatId);
+
+    if (!db && command !== "/set_identity") {
+      ctx.reply(
+        "I have no identity yet for this conversation.\nSet my identity with /set_identity."
+      );
+      return;
+    }
+
     acc.ctx = ctx;
     acc.command = ctx?.message?.["text"] || "";
+    acc.db = db!;
     subject.next();
   };
   if (typeof command === "string") {

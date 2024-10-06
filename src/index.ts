@@ -1,12 +1,25 @@
 import * as dotenv from "dotenv";
 dotenv.config();
 
-import * as db from "./db";
-import { onCommand } from "./core";
-import { escapeMd, formatNum } from "./utils";
-import { formatExpense } from "./utils";
+import { Ctx, onCommand } from "./core";
+import DB from "./db";
+import { escapeMd, formatExpense, formatNum } from "./utils";
 
 const MONTHS_TO_SHOW = 3;
+
+function checkCategoriesExist(db: DB, ctx: Ctx) {
+  const categories = db.getCategories();
+  if (!categories.length) {
+    throw new Error("No categories yet...\nUse /add_category to add one.");
+  }
+}
+
+function checkAccountsExist(db: DB, ctx: Ctx) {
+  const accounts = db.getAccounts();
+  if (!accounts.length) {
+    throw new Error("No accounts yet...\nUse /add_account to add one.");
+  }
+}
 
 onCommand("/add_account", "Adds a new bank account")
   .text("Icon of the account?", (acc, ctx, message) => {
@@ -21,7 +34,7 @@ onCommand("/add_account", "Adds a new bank account")
   })
   .confirm("Are you sure?", (acc, ctx, ok) => {
     if (ok) {
-      db.addAccount(acc.icon, acc.title);
+      acc.db.addAccount(acc.icon, acc.title);
       ctx.reply(acc.icon + " " + acc.title + " added.");
     } else {
       ctx.reply("Cancelled.");
@@ -31,7 +44,7 @@ onCommand("/add_account", "Adds a new bank account")
 
 onCommand("/get_accounts", "Lists the accounts").tap((acc, ctx) => {
   ctx.reply(
-    db
+    acc.db
       .getAccounts()
       .map((a) => a.icon + " " + a.name)
       .join("\n") || "No accounts yet...\nUse /add_account to add one."
@@ -39,10 +52,13 @@ onCommand("/get_accounts", "Lists the accounts").tap((acc, ctx) => {
 });
 
 onCommand("/remove_account", "Removes an account", false)
+  .checkError((acc, ctx) => {
+    checkAccountsExist(acc.db, ctx);
+  })
   .choice(
     "Which account?",
-    () => {
-      const accounts = db.getAccounts();
+    (acc) => {
+      const accounts = acc.db.getAccounts();
 
       const choices = accounts.map((a) => ({
         label: `${a.icon} ${a.name}`,
@@ -60,7 +76,7 @@ onCommand("/remove_account", "Removes an account", false)
     "Are you sure? All the expenses related to this account will be removed forever.",
     (acc, ctx, ok) => {
       if (ok) {
-        db.removeAccount(+acc.account_id);
+        acc.db.removeAccount(+acc.account_id);
         ctx.reply("Account removed.");
       } else {
         ctx.reply("Cancelled.");
@@ -82,7 +98,7 @@ onCommand("/add_category", "Adds a new expense category")
   })
   .confirm("Are you sure?", (acc, ctx, ok) => {
     if (ok) {
-      db.addCategory(acc.icon, acc.title);
+      acc.db.addCategory(acc.icon, acc.title);
       ctx.reply(acc.icon + " " + acc.title + " added.");
     } else {
       ctx.reply("Cancelled.");
@@ -93,7 +109,7 @@ onCommand("/add_category", "Adds a new expense category")
 onCommand("/get_categories", "Lists all the expense categories").tap(
   (acc, ctx) => {
     ctx.reply(
-      db
+      acc.db
         .getCategories()
         .map((a) => a.icon + " " + a.name)
         .join("\n") || "No categories yet...\nUse /add_category to add one."
@@ -102,24 +118,14 @@ onCommand("/get_categories", "Lists all the expense categories").tap(
 );
 
 onCommand("/add_expense", "Spend money", true)
-  .tap((acc, ctx) => {
-    // Making sure that we have accounts and categories
-    const accounts = db.getAccounts();
-    if (!accounts.length) {
-      ctx.reply("No accounts yet...\nUse /add_account to add one.");
-      return false;
-    }
-
-    const categories = db.getCategories();
-    if (!categories.length) {
-      ctx.reply("No categories yet...\nUse /add_category to add one.");
-      return false;
-    }
+  .checkError((acc, ctx) => {
+    checkAccountsExist(acc.db, ctx);
+    checkCategoriesExist(acc.db, ctx);
   })
   .choice(
     "Which account?",
-    () =>
-      db.getAccounts().map((a) => ({
+    (acc) =>
+      acc.db.getAccounts().map((a) => ({
         label: `${a.icon} ${a.name}`,
         payload: a.id.toString(),
       })),
@@ -130,8 +136,8 @@ onCommand("/add_expense", "Spend money", true)
   )
   .choice(
     "Which category?",
-    () =>
-      db.getCategories().map((a) => ({
+    (acc) =>
+      acc.db.getCategories().map((a) => ({
         label: `${a.icon} ${a.name}`,
         payload: a.id.toString(),
       })),
@@ -154,10 +160,10 @@ onCommand("/add_expense", "Spend money", true)
     acc.title = message;
   })
   .tap((acc, ctx) => {
-    const budgets = db.getBudgets();
+    const budgets = acc.db.getBudgets();
     const budget = budgets.find((b) => b.category_id === +acc.category_id);
 
-    db.addExpense(
+    acc.db.addExpense(
       +acc.account_id,
       +acc.category_id,
       +acc.amount,
@@ -172,9 +178,9 @@ onCommand("/add_expense", "Spend money", true)
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
 
-      const expenses = db.getExpenses(+startOfMonth);
+      const expenses = acc.db.getExpenses(+startOfMonth);
 
-      const categories = db.getCategories();
+      const categories = acc.db.getCategories();
       const category = categories.find((c) => c.id === +acc.category_id)!;
 
       const totalForCategory = expenses.reduce(
@@ -196,18 +202,13 @@ onCommand("/add_expense", "Spend money", true)
   });
 
 onCommand("/set_budget", "Set a monthly budget on a category")
-  .tap((acc, ctx) => {
-    // Making sure that we have categories
-    const categories = db.getCategories();
-    if (!categories.length) {
-      ctx.reply("No categories yet...\nUse /add_category to add one.");
-      return false;
-    }
+  .checkError((acc, ctx) => {
+    checkCategoriesExist(acc.db, ctx);
   })
   .choice(
     "Which category?",
-    () =>
-      db.getCategories().map((a) => ({
+    (acc) =>
+      acc.db.getCategories().map((a) => ({
         label: `${a.icon} ${a.name}`,
         payload: a.id.toString(),
       })),
@@ -226,15 +227,15 @@ onCommand("/set_budget", "Set a monthly budget on a category")
 
     acc.amount = String(amount);
 
-    db.addBudget(+acc.amount, +acc.category_id);
+    acc.db.addBudget(+acc.amount, +acc.category_id);
 
     ctx.reply("Budget set.");
   });
 
 onCommand("/get_budgets", "Lists the budgets for each category", true).tap(
   (acc, ctx) => {
-    const consumptions = db.calculateBudgetConsumption();
-    const categories = db.getCategories();
+    const consumptions = acc.db.calculateBudgetConsumption();
+    const categories = acc.db.getCategories();
 
     let answer = "";
 
@@ -258,52 +259,66 @@ onCommand("/get_budgets", "Lists the budgets for each category", true).tap(
   }
 );
 
-onCommand("/get_last_expenses", "Get the last 100 expenses").tap((acc, ctx) => {
-  const allExpenses = db.getExpenses();
+onCommand("/get_last_expenses", "Get the last 100 expenses")
+  .checkError((acc, ctx) => {
+    checkAccountsExist(acc.db, ctx);
+    checkCategoriesExist(acc.db, ctx);
+  })
+  .tap((acc, ctx) => {
+    const allExpenses = acc.db.getExpenses();
 
-  const expenses = allExpenses.slice(0, 100);
+    const expenses = allExpenses.slice(0, 100);
 
-  let answer = "";
+    let answer = "";
 
-  const categories = db.getCategories();
+    const categories = acc.db.getCategories();
 
-  for (const expense of expenses) {
-    answer += escapeMd(formatExpense(expense, categories)) + "\n";
-  }
+    for (const expense of expenses) {
+      answer += escapeMd(formatExpense(expense, categories)) + "\n";
+    }
 
-  answer = answer.trim();
+    answer = answer.trim();
 
-  ctx.replyWithMarkdownV2(answer);
-});
+    ctx.replyWithMarkdownV2(answer);
+  });
 
-onCommand("/remove_expense", "Remove an expense", true).choice(
-  "Which expense?",
-  () => {
-    const allExpenses = db.getExpenses();
-
-    const categories = db.getCategories();
-    const choices = allExpenses.map((e) => ({
-      label: formatExpense(e, categories),
-      payload: e.id.toString(),
-    }));
-
-    return choices;
-  },
-  (acc, ctx, message) => {
-    const expenseId = +message;
-
-    db.removeExpense(expenseId);
-
-    ctx.reply("Expense removed.");
-  }
-);
-
-onCommand("/change_expense_date", "Change the date of an expense")
+onCommand("/remove_expense", "Remove an expense", true)
+  .checkError((acc, ctx) => {
+    checkAccountsExist(acc.db, ctx);
+    checkCategoriesExist(acc.db, ctx);
+  })
   .choice(
     "Which expense?",
-    () => {
-      const allExpenses = db.getExpenses();
-      const categories = db.getCategories();
+    (acc) => {
+      const allExpenses = acc.db.getExpenses();
+
+      const categories = acc.db.getCategories();
+      const choices = allExpenses.map((e) => ({
+        label: formatExpense(e, categories),
+        payload: e.id.toString(),
+      }));
+
+      return choices;
+    },
+    (acc, ctx, message) => {
+      const expenseId = +message;
+
+      acc.db.removeExpense(expenseId);
+
+      ctx.reply("Expense removed.");
+    }
+  );
+
+onCommand("/change_expense_date", "Change the date of an expense")
+  .checkError((acc, ctx) => {
+    checkAccountsExist(acc.db, ctx);
+    checkCategoriesExist(acc.db, ctx);
+  })
+  .choice(
+    "Which expense?",
+    (acc) => {
+      const allExpenses = acc.db.getExpenses();
+      const categories = acc.db.getCategories();
 
       const choices = allExpenses.map((e) => ({
         label: formatExpense(e, categories),
@@ -382,7 +397,7 @@ onCommand("/change_expense_date", "Change the date of an expense")
 
     const date = Date.UTC(year, month, day);
 
-    db.changeExpenseDate(expenseId, +date);
+    acc.db.changeExpenseDate(expenseId, +date);
 
     ctx.reply("Expense date changed.");
   });
@@ -396,9 +411,9 @@ onCommand(
   startDate.setMonth(startDate.getMonth() - MONTHS_TO_SHOW, 1);
   startDate.setHours(0, 0, 0, 0);
 
-  const categories = db.getCategories();
+  const categories = acc.db.getCategories();
 
-  const allExpenses = db.getExpenses(+startDate);
+  const allExpenses = acc.db.getExpenses(+startDate);
 
   let answer = "";
 
@@ -435,7 +450,7 @@ onCommand("/get_expenses_by_category", "Get expenses by category", true).tap(
     startDate.setMonth(startDate.getMonth() - MONTHS_TO_SHOW, 1);
     startDate.setHours(0, 0, 0, 0);
 
-    const allExpenses = db.getExpenses(+startDate);
+    const allExpenses = acc.db.getExpenses(+startDate);
 
     let answer = "";
 
@@ -443,7 +458,7 @@ onCommand("/get_expenses_by_category", "Get expenses by category", true).tap(
     let dateAfter = new Date(startDate);
     dateAfter.setMonth(dateAfter.getMonth() + 1);
 
-    const categories = db.getCategories();
+    const categories = acc.db.getCategories();
 
     while (+dateBefore < Date.now()) {
       const monthExpenses = allExpenses.filter(
@@ -466,9 +481,8 @@ onCommand("/get_expenses_by_category", "Get expenses by category", true).tap(
         );
 
         if (totalForCategory > 0) {
-          answer += `${category.icon} ${category.name} : ${formatNum(
-            totalForCategory,
-            true
+          answer += `${category.icon} ${category.name} : ${escapeMd(
+            formatNum(totalForCategory, true)
           )}\n`;
         }
       }
@@ -485,10 +499,14 @@ onCommand("/get_expenses_by_category", "Get expenses by category", true).tap(
 );
 
 onCommand(/^[0-9\.]+$/, "Add an expense")
+  .checkError((acc, ctx) => {
+    checkAccountsExist(acc.db, ctx);
+    checkCategoriesExist(acc.db, ctx);
+  })
   .choice(
     "Adding an expense.\nWhich account?",
-    () => {
-      const accounts = db.getAccounts();
+    (acc) => {
+      const accounts = acc.db.getAccounts();
 
       const choices = accounts.map((a) => ({
         label: `${a.icon} ${a.name}`,
@@ -504,8 +522,8 @@ onCommand(/^[0-9\.]+$/, "Add an expense")
   )
   .choice(
     "Which category?",
-    () => {
-      const categories = db.getCategories();
+    (acc) => {
+      const categories = acc.db.getCategories();
 
       const choices = categories.map((c) => ({
         label: `${c.icon} ${c.name}`,
@@ -523,7 +541,7 @@ onCommand(/^[0-9\.]+$/, "Add an expense")
     acc.title = message;
   })
   .tap((acc, ctx) => {
-    db.addExpense(
+    acc.db.addExpense(
       +acc.account_id,
       +acc.category_id,
       +acc.command,
@@ -533,12 +551,12 @@ onCommand(/^[0-9\.]+$/, "Add an expense")
 
     ctx.reply("Expense added.");
 
-    const consumption = db.calculateBudgetConsumption();
+    const consumption = acc.db.calculateBudgetConsumption();
 
     const catId = +acc.category_id;
 
     if (consumption.has(catId)) {
-      const categories = db.getCategories();
+      const categories = acc.db.getCategories();
       const category = categories.find((c) => c.id === catId)!;
 
       const totalForCategory = consumption.get(catId)!.consumption;
@@ -554,4 +572,51 @@ onCommand(/^[0-9\.]+$/, "Add an expense")
         )}% of your monthly budget.`
       );
     }
+  });
+
+onCommand("/set_identity", "Set the identity of the bot", false)
+  .choice(
+    "Which identity should I use?",
+    () => {
+      const identities = DB.getAllIdentities();
+
+      return [
+        {
+          label: "New identity",
+          payload: "__new__",
+        },
+        ...identities.map((i) => ({
+          label: i,
+          payload: i,
+        })),
+      ];
+    },
+    (acc, ctx, message) => {
+      const identityName = message;
+
+      if (identityName !== "__new__") {
+        const chatId = acc?.ctx?.chat?.id;
+        if (!chatId) {
+          ctx.reply("Problem retreiving the chat id... What's going on?");
+          return false;
+        }
+
+        DB.setDbForConversation(chatId, identityName);
+        ctx.reply("Identity set.");
+        return false;
+      }
+    }
+  )
+  .text("Title of the new identity?", (acc, ctx, message) => {
+    const identityName = message;
+
+    const chatId = acc?.ctx?.chat?.id;
+    if (!chatId) {
+      ctx.reply("Problem retreiving the chat id... What's going on?");
+      return false;
+    }
+
+    DB.setDbForConversation(chatId, identityName);
+
+    ctx.reply("Identity set.");
   });

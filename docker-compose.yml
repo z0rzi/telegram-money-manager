@@ -7,4 +7,4 @@ services:
     restart: always
     network_mode: host
     volumes:
-      - ./db.sqlite:/app/db.sqlite
+      - ./dbs:/app/dbs

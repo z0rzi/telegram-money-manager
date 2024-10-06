@@ -1,4 +1,5 @@
 import type { Category, Expense } from "./db";
+import fs from "fs";
 
 export function escapeMd(text: string) {
   return text.replace(/[\-\.\_]/g, "\\$&");
