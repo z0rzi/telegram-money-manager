@@ -1,6 +1,7 @@
 import { Context, Markup, Telegraf } from "telegraf";
 import { ReplyKeyboardMarkup } from "typegram";
 import DB from "./db";
+import { Message } from "telegraf/typings/core/types/typegram";
 
 export type Ctx = Context;
 export type Accumulator = Record<string, string> & {
@@ -12,7 +13,7 @@ export type ThenCb<Mtype = string> = (
   acc: Accumulator,
   ctx: Ctx,
   message: Mtype
-) => void | boolean;
+) => Promise<void | boolean> | void | boolean;
 
 let listener = null as null | ((ctx: Ctx, message: string) => void);
 
@@ -35,22 +36,22 @@ const token = process.env.BOT_TOKEN || "";
 
 const bot = new Telegraf(token);
 
-// bot.use(Telegraf.log());
+bot.use(Telegraf.log());
 
-bot.command("help", (ctx) => {
-  ctx.reply(
+bot.command("help", async (ctx) => {
+  await ctx.reply(
     "Available commands:\n\n" +
       commandDefinitions.map((c) => c.command).join("\n")
   );
 });
-bot.command("start", (ctx) => {
-  ctx.reply(
-    "To get started, use the following commands:\n\n- /set_identity\n- /add_account\n- /add_category\n- /add_budget (optional)\n\nOnce you're done with that, you can add an expense by simply typing the amount."
+bot.command("start", async (ctx) => {
+  await ctx.reply(
+    "To get started, use the following commands:\n\n- /set_user\n- /add_account\n- /add_category\n- /add_budget (optional)\n\nOnce you're done with that, you can add an expense by simply typing the amount."
   );
 });
 
 bot.hears(/^.+$/, (ctx, next) => {
-  const message = ctx.message.text;
+  const message = ctx.message.text.replace(/@[a-z_]+$/, "");
   if (textCommands.has(message)) {
     textCommands.get(message)!(ctx);
     return;
@@ -76,13 +77,13 @@ bot.hears(/^.+$/, (ctx, next) => {
   next();
 });
 
-bot.hears(/.*/, (ctx) => {
+bot.hears(/.*/, async (ctx) => {
   let reply = "Unknown command.\n\nThe main commands are:\n\n";
   commandDefinitions
     .filter((c) => c.important)
     .forEach((c) => (reply += `${c.command}\n  ${c.description}\n\n`));
 
-  ctx.reply(reply);
+  await ctx.reply(reply);
 });
 
 class Subject<T> {
@@ -119,13 +120,30 @@ class Subject<T> {
   }
 }
 
-function getMainOptionsKeyboard() {
-  return Markup.keyboard(
-    [...commandDefinitions.filter((c) => c.important).map((c) => c.command)],
-    { columns: 2 }
-  )
-    .resize()
-    .selective();
+async function getMainOptionsKeyboard(chatId: number) {
+  const currentDb = DB.getDbForChat(chatId);
+
+  let options = [] as string[];
+
+  if (!currentDb) {
+    options = ["/set_user"];
+  } else {
+    const hasAccounts = currentDb.getAccounts().length > 0;
+    const hasCategories = currentDb.getCategories().length > 0;
+    const hasBudgets = currentDb.getBudgets().length > 0;
+
+    if (!hasAccounts || !hasCategories || !hasBudgets) {
+      options = ["/add_account", "/add_category", "/set_budget"];
+    }
+  }
+
+  if (!options.length) {
+    options = commandDefinitions
+      .filter((c) => c.important)
+      .map((c) => c.command);
+  }
+
+  return Markup.keyboard(options, { columns: 2 }).resize();
 }
 
 /**
@@ -146,8 +164,16 @@ function handleChain<T>(
   prompt: string,
   callback: ThenCb<T>,
   keyboardGetter?: () => null | Markup.Markup<ReplyKeyboardMarkup>,
-  answerParser?: (acc: Accumulator, ctx: Ctx, message: string) => null | T,
-  skipElementTester?: (acc: Accumulator, ctx: Ctx, message: string) => null | T
+  answerParser?: (
+    acc: Accumulator,
+    ctx: Ctx,
+    message: string
+  ) => Promise<null | T> | null | T,
+  skipElementTester?: (
+    acc: Accumulator,
+    ctx: Ctx,
+    message: string
+  ) => Promise<null | T> | null | T
 ) {
   /**
    * The subject corresponding to the current element in the chain.
@@ -155,13 +181,18 @@ function handleChain<T>(
    */
   const newSubject = new Subject<void>();
 
-  previousSubject.subscribe(() => {
+  previousSubject.subscribe(async () => {
     const keyboard = keyboardGetter && keyboardGetter();
-    acc.ctx.reply(prompt, keyboard ?? undefined);
+
+    await acc.ctx.sendMessage(
+      prompt,
+      keyboard ?? Markup.removeKeyboard()
+    );
 
     // Do we skip this element?
     const shortcutResult =
-      (skipElementTester && skipElementTester(acc, acc.ctx!, prompt)) || null;
+      (skipElementTester && (await skipElementTester(acc, acc.ctx!, prompt))) ||
+      null;
     if (shortcutResult != null) {
       // Yes, we do skip this element.
       callback(acc, acc.ctx!, shortcutResult);
@@ -174,6 +205,7 @@ function handleChain<T>(
       if (!acc.ctx) acc.ctx = ctx;
       listener = null;
 
+      let cbRes: boolean | void | null = null;
       if (callback) {
         let actualMessage = message as T;
         if (answerParser) {
@@ -185,17 +217,15 @@ function handleChain<T>(
           actualMessage = parsedMessage as T;
         }
 
-        const res = callback(acc, ctx, actualMessage);
-
-        if (res === false) {
-          newSubject.destroy();
-          return;
-        }
+        cbRes = await callback(acc, ctx, actualMessage);
       }
 
-      if (!newSubject.subscribersCount) {
+      if (!newSubject.subscribersCount || cbRes === false) {
         // This is the last element in the chain, we restore the keyboard to the default one
-        acc.ctx.sendMessage("All done", getMainOptionsKeyboard());
+        acc.ctx.sendMessage(
+          "All done",
+          await getMainOptionsKeyboard(acc.ctx!.chat!.id)
+        );
       } else {
         newSubject.next();
       }
@@ -252,9 +282,11 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
 
           return selectedChoice!.payload;
         },
-        (acc, ctx) => {
+        async (acc, ctx) => {
           if (choices.length === 1) {
-            ctx.reply(choices[0].label + " selected.");
+            await ctx.reply(
+              "Only one available option.\n" + choices[0].label + " selected."
+            );
             return choices[0].payload;
           }
 
@@ -265,15 +297,15 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
 
     tap: (callback: ThenCb<void>) => {
       const newSubject = new Subject<void>();
-      _before.subscribe(() => {
+      _before.subscribe(async () => {
         const res = callback(acc, acc.ctx!);
-        if (res === false) {
-          newSubject.destroy();
-          return;
-        }
-        if (!newSubject.subscribersCount) {
+        if (!newSubject.subscribersCount || res === false) {
           // This is the last element in the chain, we restore the keyboard to the default one
-          acc.ctx.sendMessage("All done", getMainOptionsKeyboard());
+          acc.ctx.sendMessage(
+            "All done",
+            await getMainOptionsKeyboard(acc.ctx!.chat!.id)
+          );
+          newSubject.destroy();
         } else {
           newSubject.next();
         }
@@ -287,23 +319,23 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
      */
     checkError: (callback: ThenCb<void>) => {
       const newSubject = new Subject<void>();
-      _before.subscribe(() => {
+      _before.subscribe(async () => {
         let res: boolean | void;
 
         try {
-          res = callback(acc, acc.ctx!);
+          res = await callback(acc, acc.ctx!);
         } catch (e) {
-          acc.ctx.reply(e.message);
+          await acc.ctx.reply(e.message);
           return;
         }
 
-        if (res === false) {
-          newSubject.destroy();
-          return;
-        }
-        if (!newSubject.subscribersCount) {
+        if (!newSubject.subscribersCount || res === false) {
           // This is the last element in the chain, we restore the keyboard to the default one
-          acc.ctx.sendMessage("All done", getMainOptionsKeyboard());
+          acc.ctx.sendMessage(
+            "All done",
+            await getMainOptionsKeyboard(acc.ctx!.chat!.id)
+          );
+          newSubject.destroy();
         } else {
           newSubject.next();
         }
@@ -323,16 +355,16 @@ export function onCommand(
 
   const subject = new Subject<void>();
 
-  const cb = (ctx: Ctx) => {
+  const cb = async (ctx: Ctx) => {
     // Getting the chat id
     const chatId = ctx?.chat?.id;
     if (!chatId) return;
 
-    const db = DB.getDbForConversation(chatId);
+    const db = DB.getDbForChat(chatId);
 
-    if (!db && command !== "/set_identity") {
-      ctx.reply(
-        "I have no identity yet for this conversation.\nSet my identity with /set_identity."
+    if (!db && command !== "/set_user") {
+      await ctx.reply(
+        "I have no registered user yet for this conversation.\nYou can set the user with /set_user."
       );
       return;
     }

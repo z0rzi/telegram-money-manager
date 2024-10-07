@@ -25,25 +25,25 @@ onCommand("/add_account", "Adds a new bank account")
   .text("Icon of the account?", (acc, ctx, message) => {
     acc.icon = message;
   })
-  .text("Title of the account?", (acc, ctx, message) => {
+  .text("Title of the account?", async (acc, ctx, message) => {
     const title = message;
 
     acc.title = title;
 
-    ctx.reply(acc.icon + " " + title);
+    await ctx.reply(acc.icon + " " + title);
   })
-  .confirm("Are you sure?", (acc, ctx, ok) => {
+  .confirm("Are you sure?", async (acc, ctx, ok) => {
     if (ok) {
       acc.db.addAccount(acc.icon, acc.title);
-      ctx.reply(acc.icon + " " + acc.title + " added.");
+      await ctx.reply(acc.icon + " " + acc.title + " added.");
     } else {
-      ctx.reply("Cancelled.");
+      await ctx.reply("Cancelled.");
       return false;
     }
   });
 
-onCommand("/get_accounts", "Lists the accounts").tap((acc, ctx) => {
-  ctx.reply(
+onCommand("/get_accounts", "Lists the accounts").tap(async (acc, ctx) => {
+  await ctx.reply(
     acc.db
       .getAccounts()
       .map((a) => a.icon + " " + a.name)
@@ -74,12 +74,12 @@ onCommand("/remove_account", "Removes an account", false)
   )
   .confirm(
     "Are you sure? All the expenses related to this account will be removed forever.",
-    (acc, ctx, ok) => {
+    async (acc, ctx, ok) => {
       if (ok) {
         acc.db.removeAccount(+acc.account_id);
-        ctx.reply("Account removed.");
+        await ctx.reply("Account removed.");
       } else {
-        ctx.reply("Cancelled.");
+        await ctx.reply("Cancelled.");
         return false;
       }
     }
@@ -89,26 +89,26 @@ onCommand("/add_category", "Adds a new expense category")
   .text("Icon of the category?", (acc, ctx, message) => {
     acc.icon = message;
   })
-  .text("Title of the category?", (acc, ctx, message) => {
+  .text("Title of the category?", async (acc, ctx, message) => {
     const title = message;
 
     acc.title = title;
 
-    ctx.reply(acc.icon + " " + title);
+    await ctx.reply(acc.icon + " " + title);
   })
-  .confirm("Are you sure?", (acc, ctx, ok) => {
+  .confirm("Are you sure?", async (acc, ctx, ok) => {
     if (ok) {
       acc.db.addCategory(acc.icon, acc.title);
-      ctx.reply(acc.icon + " " + acc.title + " added.");
+      await ctx.reply(acc.icon + " " + acc.title + " added.");
     } else {
-      ctx.reply("Cancelled.");
+      await ctx.reply("Cancelled.");
       return false;
     }
   });
 
 onCommand("/get_categories", "Lists all the expense categories").tap(
-  (acc, ctx) => {
-    ctx.reply(
+  async (acc, ctx) => {
+    await ctx.reply(
       acc.db
         .getCategories()
         .map((a) => a.icon + " " + a.name)
@@ -146,11 +146,11 @@ onCommand("/add_expense", "Spend money", true)
     },
     2
   )
-  .text("How much did you spend?", (acc, ctx, message) => {
+  .text("How much did you spend?", async (acc, ctx, message) => {
     const amount = +message;
 
     if (isNaN(amount)) {
-      ctx.reply("Cancelled - please enter a number next time.");
+      await ctx.reply("Cancelled - please enter a number next time.");
       return false;
     }
 
@@ -159,7 +159,7 @@ onCommand("/add_expense", "Spend money", true)
   .text("Title?", (acc, ctx, message) => {
     acc.title = message;
   })
-  .tap((acc, ctx) => {
+  .tap(async (acc, ctx) => {
     const budgets = acc.db.getBudgets();
     const budget = budgets.find((b) => b.category_id === +acc.category_id);
 
@@ -171,7 +171,7 @@ onCommand("/add_expense", "Spend money", true)
       acc.title
     );
 
-    ctx.reply("Expense added.");
+    await ctx.reply("Expense added.");
 
     if (budget) {
       const startOfMonth = new Date();
@@ -191,7 +191,7 @@ onCommand("/add_expense", "Spend money", true)
 
       const percentage = totalForCategory / budget.value;
 
-      ctx.reply(
+      await ctx.reply(
         `You've spent ${formatNum(totalForCategory, true)} in ${
           category.name
         } for this month, which is ${formatNum(
@@ -217,11 +217,11 @@ onCommand("/set_budget", "Set a monthly budget on a category")
     },
     2
   )
-  .text("How much can you spend per month?", (acc, ctx, message) => {
+  .text("How much can you spend per month?", async (acc, ctx, message) => {
     const amount = +message;
 
     if (isNaN(amount)) {
-      ctx.reply("Cancelled - please enter a number next time.");
+      await ctx.reply("Cancelled - please enter a number next time.");
       return false;
     }
 
@@ -229,11 +229,11 @@ onCommand("/set_budget", "Set a monthly budget on a category")
 
     acc.db.addBudget(+acc.amount, +acc.category_id);
 
-    ctx.reply("Budget set.");
+    await ctx.reply("Budget set.");
   });
 
 onCommand("/get_budgets", "Lists the budgets for each category", true).tap(
-  (acc, ctx) => {
+  async (acc, ctx) => {
     const consumptions = acc.db.calculateBudgetConsumption();
     const categories = acc.db.getCategories();
 
@@ -255,7 +255,7 @@ onCommand("/get_budgets", "Lists the budgets for each category", true).tap(
       )})\n\n`;
     }
 
-    ctx.reply(answer);
+    await ctx.reply(answer);
   }
 );
 
@@ -264,7 +264,7 @@ onCommand("/get_last_expenses", "Get the last 100 expenses")
     checkAccountsExist(acc.db, ctx);
     checkCategoriesExist(acc.db, ctx);
   })
-  .tap((acc, ctx) => {
+  .tap(async (acc, ctx) => {
     const allExpenses = acc.db.getExpenses();
 
     const expenses = allExpenses.slice(0, 100);
@@ -279,7 +279,7 @@ onCommand("/get_last_expenses", "Get the last 100 expenses")
 
     answer = answer.trim();
 
-    ctx.replyWithMarkdownV2(answer);
+    await ctx.replyWithMarkdownV2(answer);
   });
 
 onCommand("/remove_expense", "Remove an expense", true)
@@ -300,12 +300,12 @@ onCommand("/remove_expense", "Remove an expense", true)
 
       return choices;
     },
-    (acc, ctx, message) => {
+    async (acc, ctx, message) => {
       const expenseId = +message;
 
       acc.db.removeExpense(expenseId);
 
-      ctx.reply("Expense removed.");
+      await ctx.reply("Expense removed.");
     }
   );
 
@@ -389,7 +389,7 @@ onCommand("/change_expense_date", "Change the date of an expense")
     },
     3
   )
-  .tap((acc, ctx) => {
+  .tap(async (acc, ctx) => {
     const expenseId = +acc.expense_id;
     const year = +acc.year;
     const month = +acc.month;
@@ -399,14 +399,14 @@ onCommand("/change_expense_date", "Change the date of an expense")
 
     acc.db.changeExpenseDate(expenseId, +date);
 
-    ctx.reply("Expense date changed.");
+    await ctx.reply("Expense date changed.");
   });
 
 onCommand(
   "/get_biggest_expenses",
   "Get biggest expenses for each month",
   true
-).tap((acc, ctx) => {
+).tap(async (acc, ctx) => {
   const startDate = new Date();
   startDate.setMonth(startDate.getMonth() - MONTHS_TO_SHOW, 1);
   startDate.setHours(0, 0, 0, 0);
@@ -441,11 +441,11 @@ onCommand(
 
   answer = answer.trim();
 
-  ctx.replyWithMarkdownV2(answer);
+  await ctx.replyWithMarkdownV2(answer);
 });
 
 onCommand("/get_expenses_by_category", "Get expenses by category", true).tap(
-  (acc, ctx) => {
+  async (acc, ctx) => {
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - MONTHS_TO_SHOW, 1);
     startDate.setHours(0, 0, 0, 0);
@@ -494,7 +494,7 @@ onCommand("/get_expenses_by_category", "Get expenses by category", true).tap(
 
     answer = answer.trim();
 
-    ctx.replyWithMarkdownV2(answer);
+    await ctx.replyWithMarkdownV2(answer);
   }
 );
 
@@ -540,7 +540,7 @@ onCommand(/^[0-9\.]+$/, "Add an expense")
   .text("Title?", (acc, ctx, message) => {
     acc.title = message;
   })
-  .tap((acc, ctx) => {
+  .tap(async (acc, ctx) => {
     acc.db.addExpense(
       +acc.account_id,
       +acc.category_id,
@@ -549,7 +549,7 @@ onCommand(/^[0-9\.]+$/, "Add an expense")
       acc.title
     );
 
-    ctx.reply("Expense added.");
+    await ctx.reply("Expense added.");
 
     const consumption = acc.db.calculateBudgetConsumption();
 
@@ -564,7 +564,7 @@ onCommand(/^[0-9\.]+$/, "Add an expense")
 
       const percentage = totalForCategory / budget;
 
-      ctx.reply(
+      await ctx.reply(
         `You've spent ${formatNum(totalForCategory, true)} in ${
           category.name
         } for this month, which is ${formatNum(
@@ -574,15 +574,15 @@ onCommand(/^[0-9\.]+$/, "Add an expense")
     }
   });
 
-onCommand("/set_identity", "Set the identity of the bot", false)
+onCommand("/set_user", "Set the user of the bot", false)
   .choice(
-    "Which identity should I use?",
+    "Who are you?",
     () => {
       const identities = DB.getAllIdentities();
 
       return [
         {
-          label: "New identity",
+          label: "New user",
           payload: "__new__",
         },
         ...identities.map((i) => ({
@@ -591,32 +591,32 @@ onCommand("/set_identity", "Set the identity of the bot", false)
         })),
       ];
     },
-    (acc, ctx, message) => {
-      const identityName = message;
+    async (acc, ctx, message) => {
+      const userName = message;
 
-      if (identityName !== "__new__") {
+      if (userName !== "__new__") {
         const chatId = acc?.ctx?.chat?.id;
         if (!chatId) {
-          ctx.reply("Problem retreiving the chat id... What's going on?");
+          await ctx.reply("Problem retreiving the chat id... What's going on?");
           return false;
         }
 
-        DB.setDbForConversation(chatId, identityName);
-        ctx.reply("Identity set.");
+        DB.setDbForChat(chatId, userName);
+        await ctx.reply(`Ok, we're now managing ${userName}'s expenses.`);
         return false;
       }
     }
   )
-  .text("Title of the new identity?", (acc, ctx, message) => {
-    const identityName = message;
+  .text("Title of the new user?", async (acc, ctx, message) => {
+    const userName = message;
 
     const chatId = acc?.ctx?.chat?.id;
     if (!chatId) {
-      ctx.reply("Problem retreiving the chat id... What's going on?");
+      await ctx.reply("Problem retreiving the chat id... What's going on?");
       return false;
     }
 
-    DB.setDbForConversation(chatId, identityName);
+    DB.setDbForChat(chatId, userName);
 
-    ctx.reply("Identity set.");
+    await ctx.reply(`Ok, we're now managing ${userName}'s expenses.`);
   });

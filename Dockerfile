@@ -1,5 +1,7 @@
 FROM oven/bun:1
 
+USER $USER
+
 RUN mkdir /app
 WORKDIR /app
 

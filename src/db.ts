@@ -42,20 +42,20 @@ export default class DB {
     return JSON.parse(fs.readFileSync(CONV2DB_PATH, "utf8"));
   }
 
-  static getDbForConversation(convId: number) {
+  static getDbForChat(chatId: number) {
     const conv2DbName = DB.getConv2Db();
 
-    if (!conv2DbName[convId]) {
+    if (!conv2DbName[chatId]) {
       return null;
     }
 
-    return new DB(conv2DbName[convId]);
+    return new DB(conv2DbName[chatId]);
   }
 
-  static setDbForConversation(convId: number, dbName: string) {
+  static setDbForChat(chatId: number, dbName: string) {
     const conv2DbName = DB.getConv2Db();
 
-    conv2DbName[convId] = dbName;
+    conv2DbName[chatId] = dbName;
 
     // Creating DB if it doesn't exist
     new DB(dbName);
