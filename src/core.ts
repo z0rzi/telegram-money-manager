@@ -1,7 +1,6 @@
 import { Context, Markup, Telegraf } from "telegraf";
 import { ReplyKeyboardMarkup } from "typegram";
 import DB from "./db";
-import { Message } from "telegraf/typings/core/types/typegram";
 
 export type Ctx = Context;
 export type Accumulator = Record<string, string> & {
@@ -11,7 +10,6 @@ export type Accumulator = Record<string, string> & {
 };
 export type ThenCb<Mtype = string> = (
   acc: Accumulator,
-  ctx: Ctx,
   message: Mtype
 ) => Promise<void | boolean> | void | boolean;
 
@@ -24,13 +22,7 @@ let commandDefinitions: {
   command: string;
   description: string;
   important: boolean;
-}[] = [
-  {
-    command: "/help",
-    description: "Shows this help",
-    important: true,
-  },
-];
+}[] = [];
 
 const token = process.env.BOT_TOKEN || "";
 
@@ -38,12 +30,6 @@ const bot = new Telegraf(token);
 
 bot.use(Telegraf.log());
 
-bot.command("help", async (ctx) => {
-  await ctx.reply(
-    "Available commands:\n\n" +
-      commandDefinitions.map((c) => c.command).join("\n")
-  );
-});
 bot.command("start", async (ctx) => {
   await ctx.reply(
     "To get started, use the following commands:\n\n- /set_user\n- /add_account\n- /add_category\n- /add_budget (optional)\n\nOnce you're done with that, you can add an expense by simply typing the amount."
@@ -78,10 +64,7 @@ bot.hears(/^.+$/, (ctx, next) => {
 });
 
 bot.hears(/.*/, async (ctx) => {
-  let reply = "Unknown command.\n\nThe main commands are:\n\n";
-  commandDefinitions
-    .filter((c) => c.important)
-    .forEach((c) => (reply += `${c.command}\n  ${c.description}\n\n`));
+  let reply = "Unknown command.\n\nUse /help to find the command you need.";
 
   await ctx.reply(reply);
 });
@@ -130,10 +113,9 @@ async function getMainOptionsKeyboard(chatId: number) {
   } else {
     const hasAccounts = currentDb.getAccounts().length > 0;
     const hasCategories = currentDb.getCategories().length > 0;
-    const hasBudgets = currentDb.getBudgets().length > 0;
 
-    if (!hasAccounts || !hasCategories || !hasBudgets) {
-      options = ["/add_account", "/add_category", "/set_budget"];
+    if (!hasAccounts || !hasCategories) {
+      options = ["/add_account", "/add_category"];
     }
   }
 
@@ -161,17 +143,15 @@ async function getMainOptionsKeyboard(chatId: number) {
 function handleChain<T>(
   acc: Accumulator,
   previousSubject: Subject<void>,
-  prompt: string,
+  prompt: string | ((acc: Accumulator) => string),
   callback: ThenCb<T>,
   keyboardGetter?: () => null | Markup.Markup<ReplyKeyboardMarkup>,
   answerParser?: (
     acc: Accumulator,
-    ctx: Ctx,
     message: string
   ) => Promise<null | T> | null | T,
   skipElementTester?: (
     acc: Accumulator,
-    ctx: Ctx,
     message: string
   ) => Promise<null | T> | null | T
 ) {
@@ -184,18 +164,18 @@ function handleChain<T>(
   previousSubject.subscribe(async () => {
     const keyboard = keyboardGetter && keyboardGetter();
 
-    await acc.ctx.sendMessage(
-      prompt,
-      keyboard ?? Markup.removeKeyboard()
-    );
+    if (prompt instanceof Function) {
+      prompt = prompt(acc);
+    }
+
+    await acc.ctx.sendMessage(prompt, keyboard ?? Markup.removeKeyboard());
 
     // Do we skip this element?
     const shortcutResult =
-      (skipElementTester && (await skipElementTester(acc, acc.ctx!, prompt))) ||
-      null;
+      (skipElementTester && (await skipElementTester(acc, prompt))) || null;
     if (shortcutResult != null) {
       // Yes, we do skip this element.
-      callback(acc, acc.ctx!, shortcutResult);
+      callback(acc, shortcutResult);
       newSubject.next();
       return;
     }
@@ -209,7 +189,7 @@ function handleChain<T>(
       if (callback) {
         let actualMessage = message as T;
         if (answerParser) {
-          const parsedMessage = answerParser(acc, ctx, message);
+          const parsedMessage = answerParser(acc, message);
           if (!parsedMessage) {
             ctx.reply("Invalid answer.");
             return;
@@ -217,7 +197,7 @@ function handleChain<T>(
           actualMessage = parsedMessage as T;
         }
 
-        cbRes = await callback(acc, ctx, actualMessage);
+        cbRes = await callback(acc, actualMessage);
       }
 
       if (!newSubject.subscribersCount || cbRes === false) {
@@ -237,26 +217,30 @@ function handleChain<T>(
 
 function afterCommand(acc: Accumulator, _before: Subject<void>) {
   return {
-    text: (prompt: string, callback: ThenCb) =>
+    text: (prompt: string | ((acc: Accumulator) => string), callback: ThenCb) =>
       handleChain(acc, _before, prompt, callback),
 
-    confirm: (prompt: string, callback: ThenCb<boolean>) =>
+    confirm: (
+      prompt: string | ((acc: Accumulator) => string),
+      callback: ThenCb<boolean>
+    ) =>
       handleChain(
         acc,
         _before,
         prompt,
         callback,
         () => Markup.keyboard(["Yes", "No"], { columns: 2 }).oneTime().resize(),
-        (_0, _1, message) => message === "Yes"
+        (_0, message) => message === "Yes"
       ),
 
     choice: (
-      prompt: string,
+      prompt: string | ((acc: Accumulator) => string),
       choicesGetter: (acc: Accumulator) => { label: string; payload: string }[],
       callback: ThenCb<string>,
       colsAmount = 1
     ) => {
       let choices: { label: string; payload: string }[] = [];
+
       return handleChain(
         acc,
         _before,
@@ -274,7 +258,7 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
             .oneTime()
             .resize();
         },
-        (acc, ctx, message) => {
+        (_, message) => {
           const selectedChoice = choices.find(
             (choice) => choice.label === message
           );
@@ -282,9 +266,9 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
 
           return selectedChoice!.payload;
         },
-        async (acc, ctx) => {
+        async (acc) => {
           if (choices.length === 1) {
-            await ctx.reply(
+            await acc.ctx.reply(
               "Only one available option.\n" + choices[0].label + " selected."
             );
             return choices[0].payload;
@@ -298,7 +282,7 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
     tap: (callback: ThenCb<void>) => {
       const newSubject = new Subject<void>();
       _before.subscribe(async () => {
-        const res = callback(acc, acc.ctx!);
+        const res = callback(acc);
         if (!newSubject.subscribersCount || res === false) {
           // This is the last element in the chain, we restore the keyboard to the default one
           acc.ctx.sendMessage(
@@ -323,7 +307,7 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
         let res: boolean | void;
 
         try {
-          res = await callback(acc, acc.ctx!);
+          res = await callback(acc);
         } catch (e) {
           await acc.ctx.reply(e.message);
           return;

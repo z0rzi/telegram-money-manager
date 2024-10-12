@@ -147,6 +147,18 @@ export default class DB {
     return this.db.prepare<Category, []>("SELECT * FROM categories").all();
   }
 
+  changeCategoryName(id: number, name: string) {
+    return this.db
+      .prepare("UPDATE categories SET name = ? WHERE id = ?")
+      .run(name, id);
+  }
+
+  changeCategoryIcon(id: number, icon: string) {
+    return this.db
+      .prepare("UPDATE categories SET icon = ? WHERE id = ?")
+      .run(icon, id);
+  }
+
   addExpense(
     account_id: number,
     category_id: number,
