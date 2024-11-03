@@ -21,6 +21,25 @@ function checkAccountsExist(db: DB) {
   }
 }
 
+function createPercentBar(percent: number) {
+  const barLength = 22;
+  const filledLength = Math.round(Math.min(percent, 1) * barLength);
+
+  // const filledChar = "█";
+  // const emptyChar = "░";
+  const filledChar = "━";
+  const emptyChar = "┈";
+
+  let out = filledChar.repeat(filledLength);
+  out += emptyChar.repeat(barLength - filledLength);
+
+  if (percent > 1) {
+    out = out.slice(0, -1) + '!!!'
+  }
+
+  return out;
+}
+
 onCommand("/add_account", "Adds a new bank account")
   .text("Icon of the account?", (acc, message) => {
     acc.icon = message;
@@ -299,7 +318,7 @@ onCommand("/get_budgets", "Lists the budgets for each category", true).tap(
       )}% used for this month (${formatNum(
         consumption.consumption,
         true
-      )})\n\n`;
+      )})\n${createPercentBar(percentage)}\n\n`;
     }
 
     await acc.ctx.reply(answer);
@@ -491,8 +510,12 @@ onCommand(
   await acc.ctx.replyWithMarkdownV2(answer);
 });
 
-onCommand("/get_expenses_overview", "Get expenses by category", true).tap(
-  async (acc) => {
+onCommand("/get_expenses_overview", "Get expenses by category", true)
+  .checkError((acc) => {
+    checkAccountsExist(acc.db);
+    checkCategoriesExist(acc.db);
+  })
+  .tap(async (acc) => {
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - MONTHS_TO_SHOW, 1);
     startDate.setHours(0, 0, 0, 0);
@@ -506,6 +529,7 @@ onCommand("/get_expenses_overview", "Get expenses by category", true).tap(
     dateAfter.setMonth(dateAfter.getMonth() + 1);
 
     const categories = acc.db.getCategories();
+    const budgets = acc.db.getBudgets();
 
     while (+dateBefore < Date.now()) {
       const monthExpenses = allExpenses.filter(
@@ -531,9 +555,17 @@ onCommand("/get_expenses_overview", "Get expenses by category", true).tap(
         totalForMonth += totalForCategory;
 
         if (totalForCategory > 0) {
-          answer += `${category.icon} ${category.name} : ${escapeMd(
-            formatNum(totalForCategory, true)
-          )}\n`;
+          answer += `${category.icon} ${escapeMd(
+            category.name
+          )} :\n      ${escapeMd(formatNum(totalForCategory, true))}`;
+
+          const budget = budgets.find((b) => b.category_id === category.id);
+          if (budget) {
+            answer += escapeMd(` /${formatNum(budget.value, true)}`) + "\n";
+            answer += escapeMd(createPercentBar(totalForCategory / budget.value));
+          }
+
+          answer += `\n`;
         }
       }
       answer += `Total: ${escapeMd(formatNum(totalForMonth, true))}\n`;
@@ -546,8 +578,7 @@ onCommand("/get_expenses_overview", "Get expenses by category", true).tap(
     answer = answer.trim();
 
     await acc.ctx.replyWithMarkdownV2(answer);
-  }
-);
+  });
 
 onCommand(/^[0-9\.]+$/, "Add an expense")
   .checkError((acc) => {
@@ -648,7 +679,9 @@ onCommand("/set_user", "Set the user of the bot", false)
       if (userName !== "__new__") {
         const chatId = acc?.ctx?.chat?.id;
         if (!chatId) {
-          await acc.ctx.reply("Problem retreiving the chat id... What's going on?");
+          await acc.ctx.reply(
+            "Problem retreiving the chat id... What's going on?"
+          );
           return false;
         }
 
@@ -671,7 +704,6 @@ onCommand("/set_user", "Set the user of the bot", false)
 
     await acc.ctx.reply(`Ok, we're now managing ${userName}'s expenses.`);
   });
-
 
 onCommand("/help", "More commands", true)
   .choice(
@@ -785,3 +817,8 @@ onCommand("/help", "More commands", true)
     }
   );
 
+onCommand("/test", "Test command").tap(async (acc) => {
+  await acc.ctx.reply(`
+       ███████░░░░░░░░░░░░░
+    `);
+});
