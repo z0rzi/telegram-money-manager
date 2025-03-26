@@ -657,11 +657,15 @@ onCommand("/ask_ai", "Ask AI about your expenses", true)
       const messages = [
         {
           role: "system" as const,
-          content: "You are a helpful financial analysis assistant. Analyze the expenses data and answer the user's question concisely but thoroughly. Use markdown formatting if needed for clarity."
+          content: "You are a helpful financial analysis assistant. Analyze the expenses data and answer the user's question concisely but thoroughly."
         },
         {
           role: "user" as const,
-          content: `Here are the expenses:\n${formattedExpenses.join("\n")}\n\nQuestion: ${question}`
+          content: `Today is ${new Date().toISOString()}.\n${
+            acc.category_id === "all" 
+              ? "Analyzing all categories." 
+              : `Analyzing category: ${categories.find(c => c.id === +acc.category_id)?.name}`
+          }\n\nHere are the expenses for this category:\n${formattedExpenses.join("\n")}\n\nQuestion: ${question}`
         }
       ];
 
