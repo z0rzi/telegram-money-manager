@@ -10,7 +10,7 @@ export type Accumulator = Record<string, string> & {
 };
 export type ThenCb<Mtype = string> = (
   acc: Accumulator,
-  message: Mtype
+  message: Mtype,
 ) => Promise<void | boolean> | void | boolean;
 
 let listener = null as null | ((ctx: Ctx, message: string) => void);
@@ -32,7 +32,7 @@ bot.use(Telegraf.log());
 
 bot.command("start", async (ctx) => {
   await ctx.reply(
-    "To get started, use the following commands:\n\n- /set_user\n- /add_account\n- /add_category\n- /add_budget (optional)\n\nOnce you're done with that, you can add an expense by simply typing the amount."
+    "To get started, use the following commands:\n\n- /set_user\n- /add_account\n- /add_category\n- /add_budget (optional)\n\nOnce you're done with that, you can add an expense by simply typing the amount.",
   );
 });
 
@@ -66,7 +66,7 @@ bot.hears(/^.+$/, (ctx, next) => {
 bot.hears(/.*/, async (ctx) => {
   let reply = "Unknown command.\n\nUse /help to find the command you need.";
 
-  await ctx.reply(reply);
+  await ctx.reply(reply, await getMainOptionsKeyboard(ctx!.chat!.id));
 });
 
 class Subject<T> {
@@ -148,12 +148,12 @@ function handleChain<T>(
   keyboardGetter?: () => null | Markup.Markup<ReplyKeyboardMarkup>,
   answerParser?: (
     acc: Accumulator,
-    message: string
+    message: string,
   ) => Promise<null | T> | null | T,
   skipElementTester?: (
     acc: Accumulator,
-    message: string
-  ) => Promise<null | T> | null | T
+    message: string,
+  ) => Promise<null | T> | null | T,
 ) {
   /**
    * The subject corresponding to the current element in the chain.
@@ -191,7 +191,10 @@ function handleChain<T>(
         if (answerParser) {
           const parsedMessage = answerParser(acc, message);
           if (!parsedMessage) {
-            ctx.reply("Invalid answer.");
+            ctx.reply(
+              "Invalid answer.",
+              await getMainOptionsKeyboard(acc.ctx!.chat!.id),
+            );
             return;
           }
           actualMessage = parsedMessage as T;
@@ -204,7 +207,7 @@ function handleChain<T>(
         // This is the last element in the chain, we restore the keyboard to the default one
         acc.ctx.sendMessage(
           "All done",
-          await getMainOptionsKeyboard(acc.ctx!.chat!.id)
+          await getMainOptionsKeyboard(acc.ctx!.chat!.id),
         );
       } else {
         newSubject.next();
@@ -222,7 +225,7 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
 
     confirm: (
       prompt: string | ((acc: Accumulator) => string),
-      callback: ThenCb<boolean>
+      callback: ThenCb<boolean>,
     ) =>
       handleChain(
         acc,
@@ -230,14 +233,14 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
         prompt,
         callback,
         () => Markup.keyboard(["Yes", "No"], { columns: 2 }).oneTime().resize(),
-        (_0, message) => message === "Yes"
+        (_0, message) => message === "Yes",
       ),
 
     choice: (
       prompt: string | ((acc: Accumulator) => string),
       choicesGetter: (acc: Accumulator) => { label: string; payload: string }[],
       callback: ThenCb<string>,
-      colsAmount = 1
+      colsAmount = 1,
     ) => {
       let choices: { label: string; payload: string }[] = [];
 
@@ -253,14 +256,14 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
 
           return Markup.keyboard(
             choices.map((c) => c.label),
-            { columns: colsAmount }
+            { columns: colsAmount },
           )
             .oneTime()
             .resize();
         },
         (_, message) => {
           const selectedChoice = choices.find(
-            (choice) => choice.label === message
+            (choice) => choice.label === message,
           );
           if (!selectedChoice) return null;
 
@@ -269,13 +272,13 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
         async (acc) => {
           if (choices.length === 1) {
             await acc.ctx.reply(
-              "Only one available option.\n" + choices[0].label + " selected."
+              "Only one available option.\n" + choices[0].label + " selected.",
             );
             return choices[0].payload;
           }
 
           return null;
-        }
+        },
       );
     },
 
@@ -287,7 +290,7 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
           // This is the last element in the chain, we restore the keyboard to the default one
           acc.ctx.sendMessage(
             "All done",
-            await getMainOptionsKeyboard(acc.ctx!.chat!.id)
+            await getMainOptionsKeyboard(acc.ctx!.chat!.id),
           );
           newSubject.destroy();
         } else {
@@ -317,7 +320,7 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
           // This is the last element in the chain, we restore the keyboard to the default one
           acc.ctx.sendMessage(
             "All done",
-            await getMainOptionsKeyboard(acc.ctx!.chat!.id)
+            await getMainOptionsKeyboard(acc.ctx!.chat!.id),
           );
           newSubject.destroy();
         } else {
@@ -333,7 +336,7 @@ function afterCommand(acc: Accumulator, _before: Subject<void>) {
 export function onCommand(
   command: string | RegExp,
   description: string,
-  important = false
+  important = false,
 ) {
   const acc = {} as Accumulator;
 
@@ -348,7 +351,7 @@ export function onCommand(
 
     if (!db && command !== "/set_user") {
       await ctx.reply(
-        "I have no registered user yet for this conversation.\nYou can set the user with /set_user."
+        "I have no registered user yet for this conversation.\nYou can set the user with /set_user.",
       );
       return;
     }

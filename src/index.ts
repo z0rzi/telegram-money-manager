@@ -3,6 +3,7 @@ dotenv.config();
 
 import { onCommand } from "./core";
 import DB from "./db";
+import { askAi } from "./ai";
 import { escapeMd, formatExpense, formatNum } from "./utils";
 
 const MONTHS_TO_SHOW = 3;
@@ -135,6 +136,42 @@ onCommand("/get_categories", "Lists all the expense categories").tap(
     );
   }
 );
+
+onCommand("/remove_category", "Remove a category and all its expenses")
+  .checkError((acc) => {
+    checkCategoriesExist(acc.db);
+  })
+  .choice(
+    "Which category?",
+    (acc) =>
+      acc.db.getCategories().map((a) => ({
+        label: `${a.icon} ${a.name}`,
+        payload: a.id.toString(),
+      })),
+    (acc, message) => {
+      acc.category_id = message;
+    },
+    2
+  )
+  .confirm(
+    "Are you sure? All expenses in this category will be removed forever.",
+    async (acc, ok) => {
+      if (ok) {
+        const categoryId = +acc.category_id;
+        // Remove all expenses for this category
+        const expenses = acc.db.getExpenses().filter(e => e.category_id === categoryId);
+        for (const expense of expenses) {
+          acc.db.removeExpense(expense.id);
+        }
+        // Remove the category itself
+        acc.db.removeCategory(categoryId);
+        await acc.ctx.reply("Category and all its expenses removed.");
+      } else {
+        await acc.ctx.reply("Cancelled.");
+        return false;
+      }
+    }
+  );
 
 onCommand("/change_category", "Change the name or icon of a category")
   .checkError((acc) => {
@@ -359,7 +396,7 @@ onCommand("/remove_expense", "Remove an expense", true)
       const allExpenses = acc.db.getExpenses();
 
       const categories = acc.db.getCategories();
-      const choices = allExpenses.map((e) => ({
+      const choices = allExpenses.reverse().map((e) => ({
         label: formatExpense(e, categories),
         payload: e.id.toString(),
       }));
@@ -509,6 +546,135 @@ onCommand(
 
   await acc.ctx.replyWithMarkdownV2(answer);
 });
+
+onCommand("/get_category_expenses", "Get all expenses for a category", true)
+  .checkError((acc) => {
+    checkAccountsExist(acc.db);
+    checkCategoriesExist(acc.db);
+  })
+  .choice(
+    "Which category?",
+    (acc) =>
+      acc.db.getCategories().map((a) => ({
+        label: `${a.icon} ${a.name}`,
+        payload: a.id.toString(),
+      })),
+    (acc, message) => {
+      acc.category_id = message;
+    },
+    2
+  )
+  .tap(async (acc) => {
+    const allExpenses = acc.db.getExpenses();
+    const categories = acc.db.getCategories();
+    
+    const categoryExpenses = allExpenses.filter(
+      (e) => e.category_id === +acc.category_id
+    );
+
+    let answer = "";
+    for (const expense of categoryExpenses.reverse()) {
+      answer += escapeMd(formatExpense(expense, categories)) + "\n";
+    }
+
+    answer = answer.trim() || "No expenses found for this category.";
+
+    await acc.ctx.replyWithMarkdownV2(answer);
+  });
+
+onCommand("/ask_ai", "Ask AI about your expenses", true)
+  .checkError((acc) => {
+    checkCategoriesExist(acc.db);
+  })
+  .choice(
+    "About which category?",
+    (acc) => [
+      { label: "📊 All categories", payload: "all" },
+      ...acc.db.getCategories().map((a) => ({
+        label: `${a.icon} ${a.name}`,
+        payload: a.id.toString(),
+      })),
+    ],
+    (acc, message) => {
+      acc.category_id = message;
+    },
+    2
+  )
+  .choice(
+    "For which time period?",
+    () => {
+      const now = new Date();
+      const thisMonth = now.toLocaleString('default', { month: 'long' });
+      const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1)
+        .toLocaleString('default', { month: 'long' });
+      
+      return [
+        { label: `This month (${thisMonth})`, payload: "this_month" },
+        { label: `Last month (${lastMonth})`, payload: "last_month" },
+        { label: "Since start of year", payload: "this_year" },
+        { label: "All time", payload: "all_time" },
+      ];
+    },
+    (acc, message) => {
+      acc.time_period = message;
+    }
+  )
+  .text("What would you like to know about these expenses?", async (acc, question) => {
+    try {
+      // Get time range
+      const now = new Date();
+      let startDate: number;
+      switch (acc.time_period) {
+        case "this_month":
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+          break;
+        case "last_month":
+          startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+          break;
+        case "this_year":
+          startDate = new Date(now.getFullYear(), 0, 1).getTime();
+          break;
+        default: // all_time
+          startDate = 0;
+      }
+
+      // Get expenses
+      let expenses = acc.db.getExpenses(startDate);
+      const categories = acc.db.getCategories();
+      
+      // Filter by category if needed
+      if (acc.category_id !== "all") {
+        expenses = expenses.filter(e => e.category_id === +acc.category_id);
+      }
+
+      // Format expenses for AI
+      const formattedExpenses = expenses.map(e => {
+        const category = categories.find(c => c.id === e.category_id)!;
+        return formatExpense(e, categories);
+      });
+
+      // Prepare prompt
+      const messages = [
+        {
+          role: "system" as const,
+          content: "You are a helpful financial analysis assistant. Analyze the expenses data and answer the user's question concisely but thoroughly. Use markdown formatting if needed for clarity."
+        },
+        {
+          role: "user" as const,
+          content: `Here are the expenses:\n${formattedExpenses.join("\n")}\n\nQuestion: ${question}`
+        }
+      ];
+
+      await acc.ctx.reply("Analyzing your expenses...");
+      
+      const answer = await askAi(messages);
+      await acc.ctx.replyWithMarkdownV2(escapeMd(answer));
+
+    } catch (error) {
+      console.error("AI analysis error:", error);
+      await acc.ctx.reply("Sorry, I encountered an error while analyzing your expenses. Please try again later.");
+    }
+  });
 
 onCommand("/get_expenses_overview", "Get expenses by category", true)
   .checkError((acc) => {

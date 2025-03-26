@@ -147,6 +147,10 @@ export default class DB {
     return this.db.prepare<Category, []>("SELECT * FROM categories").all();
   }
 
+  removeCategory(id: number) {
+    return this.db.prepare("DELETE FROM categories WHERE id = ?").run(id);
+  }
+
   changeCategoryName(id: number, name: string) {
     return this.db
       .prepare("UPDATE categories SET name = ? WHERE id = ?")
