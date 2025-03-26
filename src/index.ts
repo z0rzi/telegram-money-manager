@@ -666,6 +666,8 @@ onCommand("/ask_ai", "Ask AI about your expenses", true)
       ];
 
       await acc.ctx.reply("Analyzing your expenses...");
+
+      console.log(messages);
       
       const answer = await askAi(messages);
       await acc.ctx.replyWithMarkdownV2(escapeMd(answer));
