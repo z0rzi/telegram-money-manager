@@ -1,4 +1,9 @@
-import fs from "fs";
+
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+
+if (!OPENROUTER_API_KEY) {
+  throw new Error("OPENROUTER_API_KEY is not set");
+}
 
 export enum AiModels {
   CLAUDE = "anthropic/claude-3.7-sonnet",
@@ -50,7 +55,7 @@ export async function askAi(
   const res = (await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
-      Authorization: "Bearer " + process.env.OPENROUTER_API_KEY,
+      Authorization: "Bearer " + OPENROUTER_API_KEY,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(fetchParams),
