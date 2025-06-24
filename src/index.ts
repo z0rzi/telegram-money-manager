@@ -396,7 +396,7 @@ onCommand("/remove_expense", "Remove an expense", true)
       const allExpenses = acc.db.getExpenses();
 
       const categories = acc.db.getCategories();
-      const choices = allExpenses.reverse().slice(0, 20).map((e) => ({
+      const choices = allExpenses.reverse().slice(0, 100).map((e) => ({
         label: formatExpense(e, categories),
         payload: e.id.toString(),
       }));
@@ -409,6 +409,8 @@ onCommand("/remove_expense", "Remove an expense", true)
       acc.db.removeExpense(expenseId);
 
       await acc.ctx.reply("Expense removed.");
+
+      return false;
     }
   );
 

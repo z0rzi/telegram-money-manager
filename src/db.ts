@@ -190,6 +190,7 @@ export default class DB {
   getExpenses(from?: number, to: number = Date.now()) {
     let query = `SELECT * FROM expenses WHERE date <= ${to}`;
     if (from) query += ` AND date >= ${from}`;
+    query += ` ORDER BY date ASC`;
 
     return this.db.prepare<Expense, []>(query).all();
   }
